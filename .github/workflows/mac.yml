@@ -57,6 +57,8 @@ jobs:
           brew update
           # prevent python upgrade
           brew pin python@3.12
+          brew pin pycparser
+          brew pin python-packaging
           brew upgrade || true
           brew install automake meson nasm ninja pkg-config
 
