@@ -55,6 +55,8 @@ jobs:
           sudo chown -R `whoami`:admin /usr/local/share
 
           brew update
+          # prevent python upgrade
+          brew pin python
           brew upgrade || true
           brew install automake meson nasm ninja pkg-config
 
