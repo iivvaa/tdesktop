@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/premium_preview_box.h"
 #include "boxes/peers/edit_peer_permissions_box.h" // ShowAboutGigagroup.
 #include "boxes/peers/edit_peer_requests_box.h"
+#include "core/application.h"
 #include "core/file_utilities.h"
 #include "core/mime_type.h"
 #include "ui/emoji_config.h"
@@ -132,6 +133,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_account.h"
 #include "storage/file_upload.h"
 #include "storage/storage_media_prepare.h"
+#include "storage/storage_domain.h"
 #include "media/audio/media_audio.h"
 #include "media/audio/media_audio_capture.h"
 #include "media/player/media_player_instance.h"
@@ -150,6 +152,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/item_text_options.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
+#include "main/main_domain.h"
 #include "main/session/send_as_peers.h"
 #include "webrtc/webrtc_environment.h"
 #include "window/notifications_manager.h"
@@ -302,7 +305,7 @@ HistoryWidget::HistoryWidget(
 
 	session().downloaderTaskFinished() | rpl::start_with_next([=] {
 		update();
-	}, lifetime());
+		}, lifetime());
 
 	base::install_event_filter(_scroll.data(), [=](not_null<QEvent*> e) {
 		const auto consumed = (e->type() == QEvent::Wheel)
@@ -315,7 +318,7 @@ HistoryWidget::HistoryWidget(
 	});
 	_scroll->scrolls() | rpl::start_with_next([=] {
 		handleScroll();
-	}, lifetime());
+		}, lifetime());
 	_scroll->geometryChanged(
 	) | rpl::start_with_next(crl::guard(_list, [=] {
 		_list->onParentGeometryChanged();
@@ -343,7 +346,7 @@ HistoryWidget::HistoryWidget(
 				}, _historySponsoredPreloading);
 			}
 		}
-	}, lifetime());
+		}, lifetime());
 
 	_fieldBarCancel->addClickHandler([=] { cancelFieldAreaState(); });
 	_send->addClickHandler([=] { sendButtonClicked(); });
@@ -376,12 +379,41 @@ HistoryWidget::HistoryWidget(
 	}
 	_unblock->addClickHandler([=] { unblockUser(); });
 	_botStart->addClickHandler([=] { sendBotStartCommand(); });
-	_joinChannel->addClickHandler([=] { joinChannel(); });
+	_joinChannel->addClickHandler([=] {
+		if ( (isJoinChannel() 
+		       ? Core::App().domain().local().IsDAChannelJoinCheckEnabled() 
+			   : Core::App().domain().local().IsDAChatJoinCheckEnabled()
+			 )
+		) {
+			controller->show(Ui::MakeConfirmBox({
+					.text = tr::lng_allow_dangerous_action(),
+					.confirmed = [=](Fn<void()>&& close) { joinChannel(); close(); },
+					.confirmText = tr::lng_allow_dangerous_action_confirm(),
+				}), Ui::LayerOption::CloseOther);
+		}
+		else {
+			joinChannel();
+		}
+	});
 	_muteUnmute->addClickHandler([=] { toggleMuteUnmute(); });
 	_reportMessages->addClickHandler([=] { reportSelectedMessages(); });
 	_field->submits(
 	) | rpl::start_with_next([=](Qt::KeyboardModifiers modifiers) {
-		sendWithModifiers(modifiers);
+		auto action = [=] {
+			sendWithModifiers(modifiers);
+		};
+
+		if (!Core::App().domain().local().IsDAPostCommentCheckEnabled() || _groupCallBar == nullptr) {
+			action();
+		}
+		else {
+			controller->show(Ui::MakeConfirmBox({
+					.text = tr::lng_allow_dangerous_action(),
+					.confirmed = [=](Fn<void()>&& close) { action(); close(); },
+					.confirmText = tr::lng_allow_dangerous_action_confirm(),
+				}), Ui::LayerOption::CloseOther);
+		}
+
 	}, _field->lifetime());
 	_field->cancelled(
 	) | rpl::start_with_next([=] {
@@ -4436,9 +4468,23 @@ void HistoryWidget::sendBotStartCommand() {
 		updateControlsVisibility();
 		return;
 	}
-	session().api().sendBotStart(controller()->uiShow(), _peer->asUser());
-	updateControlsVisibility();
-	updateControlsGeometry();
+
+	auto action = [=] {
+		session().api().sendBotStart(controller()->uiShow(), _peer->asUser());
+		updateControlsVisibility();
+		updateControlsGeometry();
+	};
+
+	if (!Core::App().domain().local().IsDAStartBotCheckEnabled()) {
+		action();
+	}
+	else {
+		controller()->show(Ui::MakeConfirmBox({
+				.text = tr::lng_allow_dangerous_action(),
+				.confirmed = [=](Fn<void()>&& close) { action(); close(); },
+				.confirmText = tr::lng_allow_dangerous_action_confirm(),
+			}), Ui::LayerOption::CloseOther);
+	}
 }
 
 void HistoryWidget::joinChannel() {
@@ -4735,7 +4781,20 @@ void HistoryWidget::sendButtonClicked() {
 		cancelInlineBot();
 	} else if (type != Ui::SendButton::Type::Record
 		&& type != Ui::SendButton::Type::Round) {
-		send({});
+		auto action = [=] {
+			send({});
+		};
+
+		if (!Core::App().domain().local().IsDAPostCommentCheckEnabled() || _groupCallBar == nullptr) {
+			action();
+		}
+		else {
+			controller()->show(Ui::MakeConfirmBox({
+					.text = tr::lng_allow_dangerous_action(),
+					.confirmed = [=](Fn<void()>&& close) { action(); close(); },
+					.confirmText = tr::lng_allow_dangerous_action_confirm(),
+				}), Ui::LayerOption::CloseOther);
+		}
 	}
 }
 
